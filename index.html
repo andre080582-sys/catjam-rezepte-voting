@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rezept-Voting</title>
+<style>
+:root{--bg:#faf7f2;--card:#fff;--text:#2b2420;--muted:#8a7f74;--accent:#c1662f;--border:#e8ddd0;--win:#5b8a5a;}
+@media (prefers-color-scheme: dark){:root{--bg:#1c1815;--card:#262019;--text:#f0e9e1;--muted:#a89c8e;--accent:#e08a4f;--border:#3a322a;--win:#7fbf7d;}}
+*{box-sizing:border-box;}
+body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;}
+.wrap{max-width:560px;margin:0 auto;padding:20px 16px 60px;}
+h1{font-size:1.4rem;margin:4px 0 2px;}
+h2{font-size:1.05rem;margin:0 0 10px;}
+.sub{color:var(--muted);font-size:0.9rem;margin-bottom:18px;}
+.card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:16px;margin-bottom:16px;}
+.row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+input,select,textarea{border:1px solid var(--border);border-radius:8px;padding:9px;font-size:0.95rem;background:var(--bg);color:var(--text);font-family:inherit;}
+form.add-form{display:flex;flex-direction:column;gap:8px;}
+button{border:none;border-radius:8px;padding:9px 14px;font-size:0.9rem;cursor:pointer;background:var(--accent);color:#fff;font-weight:600;}
+button.ghost{background:transparent;color:var(--accent);border:1px solid var(--accent);}
+button.small{padding:6px 10px;font-size:0.82rem;}
+.day-card{border:1px solid var(--border);border-radius:14px;padding:14px;margin-bottom:14px;background:var(--card);}
+.day-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;}
+.day-title{font-weight:700;color:var(--accent);}
+.recipe{border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;gap:10px;}
+.recipe.winner{border-color:var(--win);background:color-mix(in srgb, var(--win) 10%, var(--card));}
+.recipe-name{font-weight:600;font-size:0.92rem;}
+.recipe-desc{color:var(--muted);font-size:0.8rem;}
+.vote-col{text-align:center;min-width:60px;}
+.vote-count{font-size:1rem;font-weight:700;}
+.vote-count-label{font-size:0.68rem;color:var(--muted);}
+.voted{background:var(--accent);}
+.empty{color:var(--muted);font-size:0.88rem;text-align:center;padding:10px 0;}
+.add-cand-row{display:flex;gap:6px;margin-top:8px;}
+.add-cand-row select{flex:1;}
+.status{font-size:0.8rem;color:var(--muted);margin-top:8px;text-align:center;}
+.winner-badge{color:var(--win);font-size:0.72rem;font-weight:700;}
+.hist-date{font-weight:700;margin-bottom:6px;}
+details summary{cursor:pointer;color:var(--accent);font-weight:600;font-size:0.9rem;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🍲 Rezept-Voting</h1>
+  <div class="sub">Kein Login nötig – jeder mit diesem Link kann mitmachen.</div>
+
+  <div class="card">
+    <h2>Rezept-Bibliothek</h2>
+    <form class="add-form" id="addRecipeForm">
+      <input id="recipeName" placeholder="Neuer Rezeptname *" required maxlength="80">
+      <textarea id="recipeDesc" placeholder="Kurze Notiz (optional)" rows="2" maxlength="200"></textarea>
+      <button type="submit">Zur Bibliothek hinzufügen</button>
+    </form>
+    <details style="margin-top:10px;">
+      <summary id="libSummary">Alle Rezepte (0)</summary>
+      <div id="libList" style="margin-top:8px;"></div>
+    </details>
+  </div>
+
+  <div class="card">
+    <h2>Neuen Abstimmungstag anlegen</h2>
+    <div class="row">
+      <input type="date" id="newRoundDate">
+      <button id="addRoundBtn" type="button">Tag hinzufügen</button>
+    </div>
+  </div>
+
+  <h2>Aktive Tage</h2>
+  <div id="activeDays"></div>
+
+  <details>
+    <summary id="histSummary">Historie (0)</summary>
+    <div id="historyList" style="margin-top:10px;"></div>
+  </details>
+
+  <div class="status" id="status">Lädt…</div>
+</div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import {
+  getFirestore, collection, doc, setDoc, updateDoc, onSnapshot
+} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+
+// ---- HIER DEINE EIGENE FIREBASE-KONFIGURATION EINTRAGEN ----
+// Firebase-Konsole -> Projekteinstellungen -> "Meine Apps" -> Web-App hinzufügen
+const firebaseConfig = {
+  apiKey: "AIzaSyCc433pIjx7MnOqYvtaqQZ2ztc3RDlgQA8",
+  authDomain: "DEIN_PROJEKT.firebaseapp.com",
+  projectId: "DEIN_PROJEKT",
+  storageBucket: "DEIN_PROJEKT.appspot.com",
+  messagingSenderId: "...",
+  appId: "..."
+};
+
+const app = initializeApp(firebaseConfig);
+const dbf = getFirestore(app);
+const auth = getAuth(app);
+
+let myId = null;
+let recipes=[], rounds=[], candidates=[], votes=[];
+let editingRecipeId=null;
+
+const el = id => document.getElementById(id);
+const escapeHtml = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmtDate = d => { if(!d) return '–'; const dt=new Date(d+'T00:00:00'); return dt.toLocaleDateString('de-DE',{weekday:'short',day:'2-digit',month:'2-digit',year:'numeric'}); };
+
+function candidatesFor(date){ return candidates.filter(c => c.date === date); }
+function votesFor(date){ return votes.filter(v => v.date === date); }
+
+function renderRecipeCard(r, date, counts, maxCount, myVote){
+  const c = counts[r.id] || 0;
+  const isWinner = maxCount > 0 && c === maxCount;
+  const isMine = myVote && myVote.recipeId === r.id;
+  return `<div class="recipe ${isWinner?'winner':''}">
+    <div>
+      <div class="recipe-name">${escapeHtml(r.name)}</div>
+      ${r.desc ? `<div class="recipe-desc">${escapeHtml(r.desc)}</div>` : ''}
+      ${isWinner ? '<div class="winner-badge">🏆 Favorit</div>' : ''}
+    </div>
+    <div class="vote-col">
+      <div class="vote-count">${c}</div>
+      <div class="vote-count-label">Stimme${c===1?'':'n'}</div>
+      <button data-date="${date}" data-id="${r.id}" class="voteBtn small ${isMine?'voted':'ghost'}" type="button">${isMine?'✓':'Voten'}</button>
+    </div>
+  </div>`;
+}
+
+function render(){
+  el('libSummary').textContent = `Alle Rezepte (${recipes.length})`;
+  el('libList').innerHTML = recipes.length ? recipes.map(r => {
+    if(r.id === editingRecipeId){
+      return `<div class="recipe"><form class="add-form editRecipeForm" data-id="${r.id}" style="width:100%;">
+        <input class="editName" value="${escapeHtml(r.name)}" required maxlength="80">
+        <textarea class="editDesc" rows="2" maxlength="200">${escapeHtml(r.desc||'')}</textarea>
+        <div class="row"><button type="submit" class="small">Speichern</button>
+        <button type="button" class="small ghost cancelEditBtn">Abbrechen</button></div>
+      </form></div>`;
+    }
+    return `<div class="recipe"><div><div class="recipe-name">${escapeHtml(r.name)}</div>
+      ${r.desc?`<div class="recipe-desc">${escapeHtml(r.desc)}</div>`:''}</div>
+      <button type="button" class="small ghost editRecipeBtn" data-id="${r.id}">Bearbeiten</button></div>`;
+  }).join('') : '<div class="empty">Noch keine Rezepte.</div>';
+
+  const active = rounds.filter(r => r.status !== 'closed').sort((a,b)=>a.date.localeCompare(b.date));
+  const closed = rounds.filter(r => r.status === 'closed').sort((a,b)=>b.date.localeCompare(a.date));
+
+  el('activeDays').innerHTML = active.length ? active.map(round => {
+    const cands = candidatesFor(round.date);
+    const cRecipes = cands.map(c => recipes.find(r => r.id === c.recipeId)).filter(Boolean);
+    const dVotes = votesFor(round.date);
+    const counts = {}; dVotes.forEach(v => counts[v.recipeId] = (counts[v.recipeId]||0)+1);
+    const maxCount = Math.max(0, ...Object.values(counts));
+    const myVote = dVotes.find(v => v.userId === myId);
+    const availableRecipes = recipes.filter(r => !cands.some(c => c.recipeId === r.id));
+    const options = availableRecipes.map(r => `<option value="${r.id}">${escapeHtml(r.name)}</option>`).join('');
+    return `<div class="day-card">
+      <div class="day-head"><div class="day-title">${fmtDate(round.date)}</div>
+      <button class="ghost small closeRoundBtn" data-date="${round.date}" type="button">Abschließen</button></div>
+      ${cRecipes.length ? cRecipes.map(r => renderRecipeCard(r, round.date, counts, maxCount, myVote)).join('') : '<div class="empty">Noch keine Rezepte für diesen Tag.</div>'}
+      ${availableRecipes.length ? `<div class="add-cand-row"><select class="candSelect" data-date="${round.date}">${options}</select>
+      <button class="small addCandBtn" data-date="${round.date}" type="button">+ Hinzufügen</button></div>` : ''}
+    </div>`;
+  }).join('') : '<div class="card empty">Noch keine aktiven Tage – oben einen anlegen.</div>';
+
+  el('histSummary').textContent = `Historie (${closed.length})`;
+  el('historyList').innerHTML = closed.length ? closed.map(round => {
+    const cands = candidatesFor(round.date);
+    const cRecipes = cands.map(c => recipes.find(r => r.id === c.recipeId)).filter(Boolean);
+    const dVotes = votesFor(round.date);
+    const counts = {}; dVotes.forEach(v => counts[v.recipeId] = (counts[v.recipeId]||0)+1);
+    const maxCount = Math.max(0, ...Object.values(counts));
+    return `<div class="card"><div class="hist-date">${fmtDate(round.date)}</div>
+      ${cRecipes.length ? cRecipes.sort((a,b)=>(counts[b.id]||0)-(counts[a.id]||0)).map(r => {
+        const c = counts[r.id]||0; const isWinner = maxCount>0 && c===maxCount;
+        return `<div class="recipe ${isWinner?'winner':''}"><div><div class="recipe-name">${escapeHtml(r.name)}</div>${isWinner?'<div class="winner-badge">🏆 Gewinner</div>':''}</div>
+        <div class="vote-col"><div class="vote-count">${c}</div><div class="vote-count-label">Stimme${c===1?'':'n'}</div></div></div>`;
+      }).join('') : '<div class="empty">Keine Rezepte ausgewählt.</div>'}
+    </div>`;
+  }).join('') : '<div class="empty">Noch keine abgeschlossenen Tage.</div>';
+
+  document.querySelectorAll('.editRecipeBtn').forEach(b => b.addEventListener('click', () => { editingRecipeId=b.dataset.id; render(); }));
+  document.querySelectorAll('.cancelEditBtn').forEach(b => b.addEventListener('click', () => { editingRecipeId=null; render(); }));
+  document.querySelectorAll('.editRecipeForm').forEach(f => f.addEventListener('submit', e => {
+    e.preventDefault();
+    const id=f.dataset.id, name=f.querySelector('.editName').value.trim(), desc=f.querySelector('.editDesc').value.trim();
+    if(name) saveRecipeEdit(id, name, desc);
+  }));
+  document.querySelectorAll('.voteBtn').forEach(b => b.addEventListener('click', () => castVote(b.dataset.date, b.dataset.id)));
+  document.querySelectorAll('.closeRoundBtn').forEach(b => b.addEventListener('click', () => closeRound(b.dataset.date)));
+  document.querySelectorAll('.addCandBtn').forEach(b => b.addEventListener('click', () => {
+    const sel = document.querySelector(`.candSelect[data-date="${b.dataset.date}"]`);
+    if(sel && sel.value) addCandidate(b.dataset.date, sel.value);
+  }));
+}
+
+async function addRecipeToLibrary(name, desc){
+  const id = 'r_' + Date.now().toString(36) + Math.random().toString(36).slice(2,7);
+  try{ await setDoc(doc(dbf,'recipes',id), {name, desc: desc||'', addedBy: myId, createdAt: Date.now()}); }
+  catch(e){ el('status').textContent = 'Hinzufügen fehlgeschlagen.'; }
+}
+async function saveRecipeEdit(id, name, desc){
+  try{ await updateDoc(doc(dbf,'recipes',id), {name, desc}); editingRecipeId=null; }
+  catch(e){ el('status').textContent = 'Bearbeiten fehlgeschlagen.'; }
+}
+async function addRound(dateStr){
+  try{ await setDoc(doc(dbf,'rounds',dateStr), {date:dateStr, status:'active', createdAt: Date.now()}); }
+  catch(e){ el('status').textContent = 'Tag anlegen fehlgeschlagen.'; }
+}
+async function closeRound(dateStr){
+  try{ await updateDoc(doc(dbf,'rounds',dateStr), {status:'closed'}); }
+  catch(e){ el('status').textContent = 'Abschließen fehlgeschlagen.'; }
+}
+async function addCandidate(date, recipeId){
+  const id = date+'_'+recipeId;
+  try{ await setDoc(doc(dbf,'candidates',id), {date, recipeId, addedBy: myId, createdAt: Date.now()}); }
+  catch(e){ el('status').textContent = 'Rezept konnte nicht hinzugefügt werden.'; }
+}
+async function castVote(date, recipeId){
+  const id = date+'_'+myId;
+  try{ await setDoc(doc(dbf,'votes',id), {date, userId: myId, recipeId, updatedAt: Date.now()}); }
+  catch(e){ el('status').textContent = 'Voten fehlgeschlagen.'; }
+}
+
+function setupUI(){
+  el('addRecipeForm').addEventListener('submit', e => {
+    e.preventDefault();
+    const name = el('recipeName').value.trim(), desc = el('recipeDesc').value.trim();
+    if(!name) return;
+    addRecipeToLibrary(name, desc);
+    el('recipeName').value=''; el('recipeDesc').value='';
+  });
+  el('addRoundBtn').addEventListener('click', () => {
+    const v = el('newRoundDate').value;
+    if(v){ addRound(v); el('newRoundDate').value=''; }
+  });
+}
+
+setupUI();
+onAuthStateChanged(auth, user => {
+  if(user){
+    myId = user.uid;
+    onSnapshot(collection(dbf,'recipes'), s => { recipes = s.docs.map(d=>({id:d.id, ...d.data()})); render(); });
+    onSnapshot(collection(dbf,'rounds'), s => { rounds = s.docs.map(d=>({id:d.id, ...d.data()})); render(); });
+    onSnapshot(collection(dbf,'candidates'), s => { candidates = s.docs.map(d=>d.data()); render(); });
+    onSnapshot(collection(dbf,'votes'), s => { votes = s.docs.map(d=>d.data()); render(); });
+    el('status').textContent = '';
+  }
+});
+signInAnonymously(auth).catch(() => { el('status').textContent = 'Verbindung fehlgeschlagen – Firebase-Konfiguration prüfen.'; });
+</script>
+</body>
+</html>
