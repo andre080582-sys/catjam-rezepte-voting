@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Rezept-Voting</title>
 <style>
-:root{--bg:#fff;--card:#fff;--text:#2b2420;--muted:#8a7f74;--accent:#c0d0d0d;--border:#cccbca;--win:#5b8a5a;}
+:root{--bg:#fff;--card:#8f8c8c;--text:#2b2420;--muted:#8a7f74;--accent:#c0d0d0d;--border:#cccbca;--win:#5b8a5a;}
 @media (prefers-color-scheme: dark){:root{--bg:#1c1815;--card:#262019;--text:#f0e9e1;--muted:#a89c8e;--accent:#e08a4f;--border:#3a322a;--win:#7fbf7d;}}
 *{box-sizing:border-box;}
 body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;}
@@ -45,10 +45,24 @@ details summary{cursor:pointer;color:var(--accent);font-weight:600;font-size:0.9
   <h1>CATJAM Rezept-Voting</h1>
   <div class="sub">Was soll es zu essen geben?</div>
 
+
+  <h2>Aktive Tage</h2>
+  <div id="activeDays"></div>
+
+
+  <div class="card">
+    <h2>Neuen Tag anlegen</h2>
+    <div class="row">
+      <input type="date" id="newRoundDate">
+      <button id="addRoundBtn" type="button">Tag hinzufügen</button>
+    </div>
+  </div>
+
+
   <div class="card">
     <h2>Rezept-Bibliothek</h2>
     <form class="add-form" id="addRecipeForm">
-      <input id="recipeName" placeholder="Neuer Rezeptname *" required maxlength="80">
+      <input id="recipeName" placeholder="Neues Rezept" required maxlength="80">
       <textarea id="recipeDesc" placeholder="Kurze Notiz (optional)" rows="2" maxlength="200"></textarea>
       <button type="submit">Zur Bibliothek hinzufügen</button>
     </form>
@@ -58,16 +72,6 @@ details summary{cursor:pointer;color:var(--accent);font-weight:600;font-size:0.9
     </details>
   </div>
 
-  <div class="card">
-    <h2>Neuen Abstimmungstag anlegen</h2>
-    <div class="row">
-      <input type="date" id="newRoundDate">
-      <button id="addRoundBtn" type="button">Tag hinzufügen</button>
-    </div>
-  </div>
-
-  <h2>Aktive Tage</h2>
-  <div id="activeDays"></div>
 
   <details>
     <summary id="histSummary">Historie (0)</summary>
